@@ -2,7 +2,6 @@
 
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import { getFlag } from "@/lib/feature-flags";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertTriangle, Box, CheckCircle2, Cpu, Loader2, Plus, Upload, X } from "lucide-react";
 import React, { useCallback, useState } from "react";
@@ -11,10 +10,6 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 import { WizardShell, SummaryRow, SummarySection } from "./wizard-shell";
-
-// ─── Feature flag gate ────────────────────────────────────────────────────────
-
-const BIM_ENABLED = getFlag("v1_5_bim");
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -76,36 +71,6 @@ function fmtSize(bytes: number): string {
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
   return <p className="text-[12px] mt-1" style={{ color: "var(--danger)" }}>{message}</p>;
-}
-
-// ─── Feature flag gate component ─────────────────────────────────────────────
-
-function FeatureFlagGate({ onClose }: { onClose?: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-6 py-16 px-8 text-center">
-      <div
-        className="w-20 h-20 rounded-full flex items-center justify-center"
-        style={{ background: "var(--warning-bg)", border: "2px solid var(--warning)" }}
-      >
-        <AlertTriangle className="w-9 h-9" style={{ color: "var(--warning)" }} />
-      </div>
-      <div>
-        <h3 className="text-[20px] font-700" style={{ color: "var(--text-primary)" }}>BIM Module Not Enabled</h3>
-        <p className="text-[14px] mt-2" style={{ color: "var(--text-secondary)" }}>
-          The BIM model upload feature is part of the v1.5 BIM Extension. Contact your administrator or upgrade your plan to enable this feature.
-        </p>
-        <p className="text-[12px] mt-2 font-600" style={{ color: "var(--text-muted)" }}>Feature flag: v1_5_bim</p>
-      </div>
-      <div className="flex gap-3">
-        {onClose && (
-          <button type="button" className="btn btn-secondary" onClick={onClose}>Close</button>
-        )}
-        <button type="button" className="btn btn-primary" onClick={() => toast.info("Contact support to enable the BIM module")}>
-          Upgrade Plan
-        </button>
-      </div>
-    </div>
-  );
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -256,18 +221,6 @@ export function BimModelWizard({ onClose, onSuccess, defaultProjectId }: BimMode
     }
   };
 
-  // ── Feature flag gate ─────────────────────────────────────────────────────
-  if (!BIM_ENABLED) {
-    return (
-      <div
-        className="bg-[var(--bg-surface)] rounded-[var(--radius-2xl)] overflow-hidden"
-        style={{ boxShadow: "var(--shadow-lg)", minHeight: "400px", width: "100%", maxWidth: "640px", margin: "0 auto" }}
-      >
-        <FeatureFlagGate onClose={onClose} />
-      </div>
-    );
-  }
-
   const successContent = (
     <>
       <div>
@@ -292,7 +245,7 @@ export function BimModelWizard({ onClose, onSuccess, defaultProjectId }: BimMode
       currentStep={currentStep}
       onStepChange={setCurrentStep}
       title="Upload BIM Model"
-      subtitle="Add a BIM model to the project (v1.5 feature)"
+      subtitle="Add a BIM model to the project"
       onClose={onClose}
       isLastStep={currentStep === 2}
       nextLabel={currentStep === 2 ? "Upload & Process" : undefined}

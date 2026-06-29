@@ -25,8 +25,11 @@ export const metadata: Metadata = {
   title: "MeasureDeck | Construction Commercial Management",
   description:
     "Enterprise commercial management for construction teams. Manage valuations, CVRs, final accounts, and cost reporting in one platform.",
-  icons: {
-    icon: "/measuredeck favicon.png",
+  manifest: "/manifest.json",
+  themeColor: "#3b82f6",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
   },
 };
 

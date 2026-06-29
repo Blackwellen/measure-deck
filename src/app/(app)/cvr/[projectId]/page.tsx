@@ -1098,6 +1098,256 @@ function LockDialog({ open, onClose, onConfirm }: { open: boolean; onClose: () =
   );
 }
 
+// ─── Tab: Margin Bridge ──────────────────────────────────────────────────────────
+
+function MarginBridgeTab({ proj }: { proj: ProjectData }) {
+  const contractMargin = proj.contract_sum * 0.10;
+  const ceUplift = proj.approved_changes * 0.25;
+  const variationImpact = -proj.pending_changes * 0.05;
+  const riskRelease = proj.risk_allowance * 0.30;
+  const finalMargin = contractMargin + ceUplift + variationImpact + riskRelease;
+
+  const bars = [
+    { label: "Contract Margin", value: contractMargin, positive: true },
+    { label: "CE Uplift", value: ceUplift, positive: true },
+    { label: "Variation Impact", value: variationImpact, positive: variationImpact >= 0 },
+    { label: "Risk Release", value: riskRelease, positive: true },
+    { label: "Final Margin", value: finalMargin, positive: finalMargin >= 0, isFinal: true },
+  ];
+
+  const maxAbs = Math.max(...bars.map((b) => Math.abs(b.value)));
+
+  return (
+    <div className="space-y-6">
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold mb-6">Margin Bridge — Contract to Forecast Final</h3>
+        <div className="space-y-4">
+          {bars.map((bar, idx) => {
+            const widthPct = maxAbs > 0 ? (Math.abs(bar.value) / maxAbs) * 100 : 0;
+            const pct = proj.contract_sum > 0 ? ((bar.value / proj.contract_sum) * 100).toFixed(1) : "0";
+            return (
+              <div key={idx} className="space-y-1">
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="font-medium">{bar.label}</span>
+                  <span className={cn("tabular-nums font-bold", bar.positive ? "text-[var(--success)]" : "text-[var(--danger)]")}>
+                    {bar.value >= 0 ? "+" : ""}{formatCurrencyFull(bar.value)} ({pct}%)
+                  </span>
+                </div>
+                <div className="h-8 rounded-lg relative overflow-hidden" style={{ background: "var(--bg-muted)" }}>
+                  <div
+                    className={cn("absolute top-0 bottom-0 left-0 rounded-lg transition-all", bar.isFinal ? "opacity-90" : "opacity-70")}
+                    style={{
+                      width: `${widthPct}%`,
+                      background: bar.positive ? "var(--success)" : "var(--danger)",
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center px-3">
+                    <span className="text-xs font-semibold text-white mix-blend-screen">
+                      {bar.label}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--border)]">
+          <h3 className="text-sm font-semibold">Margin Bridge Summary</h3>
+        </div>
+        <table className="data-table w-full">
+          <thead>
+            <tr>
+              <th>Component</th>
+              <th className="text-right">Amount</th>
+              <th className="text-right">% of Contract</th>
+              <th>Direction</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bars.map((bar, idx) => (
+              <tr key={idx} className={bar.isFinal ? "bg-[var(--primary-light)]" : undefined}>
+                <td className={cn("font-medium", bar.isFinal && "font-bold text-[var(--primary)]")}>
+                  {bar.label}
+                </td>
+                <td className={cn("text-right tabular-nums font-semibold", bar.positive ? "text-[var(--success)]" : "text-[var(--danger)]")}>
+                  {bar.value >= 0 ? "+" : ""}{formatCurrencyFull(bar.value)}
+                </td>
+                <td className="text-right tabular-nums text-xs" style={{ color: "var(--text-muted)" }}>
+                  {proj.contract_sum > 0 ? ((bar.value / proj.contract_sum) * 100).toFixed(2) : "0"}%
+                </td>
+                <td>
+                  {bar.positive
+                    ? <TrendingUp size={14} className="text-[var(--success)]" />
+                    : <TrendingDown size={14} className="text-[var(--danger)]" />}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Tab: Forecast to Complete ───────────────────────────────────────────────────
+
+interface CTCRow {
+  id: string;
+  category: string;
+  budget: number;
+  actual: number;
+  ctc: number;
+}
+
+function ForecastToCompleteTab({ proj }: { proj: ProjectData }) {
+  const cv = proj.contract_sum;
+  const [rows, setRows] = useState<CTCRow[]>([
+    { id: "t1", category: "Substructure & Groundworks", budget: cv * 0.10, actual: cv * 0.099, ctc: cv * 0.002 },
+    { id: "t2", category: "Frame & Upper Floors", budget: cv * 0.22, actual: cv * 0.198, ctc: cv * 0.024 },
+    { id: "t3", category: "Roof", budget: cv * 0.05, actual: cv * 0.022, ctc: cv * 0.030 },
+    { id: "t4", category: "External Envelope", budget: cv * 0.14, actual: cv * 0.088, ctc: cv * 0.055 },
+    { id: "t5", category: "Internal Finishes", budget: cv * 0.09, actual: cv * 0.024, ctc: cv * 0.068 },
+    { id: "t6", category: "M&E Services", budget: cv * 0.16, actual: cv * 0.115, ctc: cv * 0.047 },
+    { id: "t7", category: "Preliminaries", budget: cv * 0.12, actual: cv * 0.079, ctc: cv * 0.041 },
+    { id: "t8", category: "Overheads & Profit", budget: cv * 0.12, actual: 0, ctc: cv * 0.107 },
+  ]);
+
+  const [saving, setSaving] = useState(false);
+
+  function handleCTCChange(id: string, val: string) {
+    const num = parseFloat(val.replace(/[^0-9.-]/g, "")) || 0;
+    setRows((prev) => prev.map((r) => r.id === id ? { ...r, ctc: num } : r));
+  }
+
+  async function handleSaveCTC() {
+    setSaving(true);
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: ws } = await supabase
+        .from("workspace_memberships")
+        .select("workspace_id")
+        .eq("user_id", user?.id ?? "")
+        .limit(1)
+        .single();
+
+      const wsId = (ws?.workspace_id as string) ?? "";
+
+      const { data: latestPeriod } = await supabase
+        .from("cvr_periods")
+        .select("id")
+        .eq("project_id", proj.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (latestPeriod) {
+        await supabase
+          .from("cvr_periods")
+          .update({ ctc_data: rows })
+          .eq("id", (latestPeriod as { id: string }).id);
+      }
+
+      if (wsId && user?.id) {
+        await supabase.from("audit_events").insert({
+          workspace_id: wsId,
+          user_id: user.id,
+          action: "cvr_ctc_updated",
+          resource_type: "project",
+          resource_id: proj.id,
+          new_values: { ctc_data: rows },
+        });
+      }
+    } catch {
+      // silently ignored
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      budget: acc.budget + r.budget,
+      actual: acc.actual + r.actual,
+      ctc: acc.ctc + r.ctc,
+      eac: acc.eac + r.actual + r.ctc,
+    }),
+    { budget: 0, actual: 0, ctc: 0, eac: 0 }
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          Edit the CTC column to update forecast. EAC = Actual Cost + CTC.
+        </p>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => void handleSaveCTC()}
+          disabled={saving}
+        >
+          <Save size={13} /> {saving ? "Saving…" : "Save CTC"}
+        </button>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Work Category</th>
+                <th className="text-right">Budget</th>
+                <th className="text-right">Actual Cost</th>
+                <th className="text-right">CTC (edit)</th>
+                <th className="text-right">EAC</th>
+                <th className="text-right">Variance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const eac = row.actual + row.ctc;
+                const variance = row.budget - eac;
+                return (
+                  <tr key={row.id}>
+                    <td className="font-medium">{row.category}</td>
+                    <td className="text-right tabular-nums">{formatCurrencyFull(row.budget)}</td>
+                    <td className="text-right tabular-nums">{row.actual > 0 ? formatCurrencyFull(row.actual) : "—"}</td>
+                    <td className="text-right">
+                      <EditableCell
+                        value={formatCurrencyFull(row.ctc)}
+                        onSave={(v) => handleCTCChange(row.id, v)}
+                      />
+                    </td>
+                    <td className="text-right tabular-nums font-semibold">{formatCurrencyFull(eac)}</td>
+                    <td className={cn("text-right tabular-nums font-semibold", variance >= 0 ? "text-[var(--success)]" : "text-[var(--danger)]")}>
+                      {variance >= 0 ? "+" : ""}{formatCurrencyFull(variance)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-[var(--bg-subtle)]">
+                <td className="px-3.5 py-3 font-bold">Total</td>
+                <td className="px-3.5 py-3 text-right tabular-nums font-bold">{formatCurrencyFull(totals.budget)}</td>
+                <td className="px-3.5 py-3 text-right tabular-nums font-bold">{formatCurrencyFull(totals.actual)}</td>
+                <td className="px-3.5 py-3 text-right tabular-nums font-bold">{formatCurrencyFull(totals.ctc)}</td>
+                <td className="px-3.5 py-3 text-right tabular-nums font-bold">{formatCurrencyFull(totals.eac)}</td>
+                <td className={cn("px-3.5 py-3 text-right tabular-nums font-bold", totals.budget - totals.eac >= 0 ? "text-[var(--success)]" : "text-[var(--danger)]")}>
+                  {totals.budget - totals.eac >= 0 ? "+" : ""}{formatCurrencyFull(totals.budget - totals.eac)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Tab definitions ────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -1111,6 +1361,8 @@ const TABS = [
   "Forecast Final Account",
   "Period Comparison",
   "Subcontract Ledger",
+  "Margin Bridge",
+  "Forecast to Complete",
   "Activity",
   "Notes",
 ] as const;
@@ -1264,6 +1516,8 @@ export default function CVRProjectPage() {
         {activeTab === "Forecast Final Account"  && <ForecastFinalAccountTab proj={proj} />}
         {activeTab === "Period Comparison"       && <PeriodComparisonTab />}
         {activeTab === "Subcontract Ledger"      && <SubcontractLedgerTab />}
+        {activeTab === "Margin Bridge"           && <MarginBridgeTab proj={proj} />}
+        {activeTab === "Forecast to Complete"    && <ForecastToCompleteTab proj={proj} />}
         {activeTab === "Activity"                && <ActivityTab />}
         {activeTab === "Notes"                   && <NotesTab proj={proj} />}
       </div>

@@ -2,25 +2,24 @@
 
 import { cn } from "@/lib/utils";
 import { Sparkles } from "lucide-react";
-import React, { useState } from "react";
-import { BubblePanel } from "./bubble-panel";
+import React from "react";
 
-export function AIBubbleButton() {
-  const [open, setOpen] = useState(false);
+interface AIBubbleButtonProps {
+  onClick?: () => void;
+  active?: boolean;
+}
 
+export function AIBubbleButton({ onClick, active = false }: AIBubbleButtonProps) {
   return (
-    <>
-      <button
-        className={cn("ai-bubble-btn", open && "ai-bubble-btn--active")}
-        aria-label={open ? "Close AI assistant" : "Open AI assistant"}
-        aria-expanded={open}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Sparkles size={22} />
-      </button>
-
-      {open && <BubblePanel onClose={() => setOpen(false)} />}
-    </>
+    <button
+      className={cn("ai-bubble-btn", active && "ai-bubble-btn--active")}
+      aria-label={active ? "Close AI assistant" : "Open AI assistant"}
+      aria-expanded={active}
+      type="button"
+      onClick={onClick}
+      style={{ zIndex: 9999, position: "relative" }}
+    >
+      <Sparkles size={22} />
+    </button>
   );
 }

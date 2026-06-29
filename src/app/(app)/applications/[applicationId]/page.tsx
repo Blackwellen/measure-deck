@@ -8,8 +8,15 @@ import {
   FileText, CheckCircle2, AlertTriangle, Clock, Send, Edit2,
   Building2, Calendar, DollarSign, Percent, Shield, Paperclip,
   MessageSquare, Activity, Copy, RefreshCw, ExternalLink, Trash2,
-  ChevronRight, Lock, XCircle,
+  ChevronRight, Lock, XCircle, TrendingDown, Scale, Share2, Mail, X,
 } from "lucide-react";
+import { calculateCISDeduction } from "@/lib/cis/deduction-calculator";
+import type { CISStatus } from "@/lib/cis/deduction-calculator";
+import { ComplianceBadge } from "@/components/ui/compliance-badge";
+import { CountdownClock } from "@/components/ui/countdown-clock";
+import { FeatureGate } from "@/components/ui/feature-gate";
+import { getFlag } from "@/lib/feature-flags";
+import { calculatePaymentTimeline, getDaysOverdue } from "@/lib/hgcra/payment-timeline";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -232,11 +239,14 @@ const TABS = [
   "Change Events",
   "Retention",
   "SMPE / Subcontractors",
+  "CIS",
+  "HGCRA",
   "Supporting Documents",
   "Correspondence",
   "Dispute Log",
   "Activity",
   "AI Narrative",
+  "Client Portal",
 ] as const;
 
 type Tab = typeof TABS[number];
@@ -1000,6 +1010,615 @@ function AINarrativeTab({ app }: { app: Application }) {
   );
 }
 
+// ─── Tab: CIS ───────────────────────────────────────────────────────────────────
+
+function CISTab({ app }: { app: Application }) {
+  if (!getFlag("cis_compliance")) {
+    return (
+      <div className="card">
+        <div className="empty-state">
+          <div className="empty-icon"><Building2 size={22} /></div>
+          <h3 className="text-base font-semibold">CIS Compliance</h3>
+          <p className="text-sm text-[var(--text-muted)] max-w-xs">
+            CIS compliance tracking requires an Enterprise plan. Contact your administrator to enable.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const certifiedValue = app.certified_amount ?? app.gross_value;
+
+  const subSeed: { name: string; status: CISStatus; materials: number; is_drc: boolean }[] = [
+    { name: "Alpha Steelwork Ltd",   status: "net",          materials: 40_000, is_drc: true  },
+    { name: "Fenwick Cladding Systems", status: "gross",     materials: 25_000, is_drc: false },
+    { name: "PowerTech MEP",         status: "higher_rate",  materials: 15_000, is_drc: false },
+    { name: "GreenTech Concrete",    status: "unverified",   materials: 0,      is_drc: false },
+  ];
+
+  const perSubValue = Math.round(certifiedValue / subSeed.length);
+
+  const deductions = subSeed.map((sub) =>
+    calculateCISDeduction({
+      gross_payment: perSubValue,
+      materials_cost: sub.materials,
+      cis_status: sub.status,
+      is_vat_reverse_charge: sub.is_drc,
+    })
+  );
+
+  const totalGross = deductions.reduce((s, d) => s + d.gross_payment, 0);
+  const totalDeduction = deductions.reduce((s, d) => s + d.deduction_amount, 0);
+  const totalNet = deductions.reduce((s, d) => s + d.net_payment, 0);
+
+  const cisStatusLabel = (status: CISStatus): string => {
+    switch (status) {
+      case "gross":       return "Gross (0%)";
+      case "net":         return "Net (20%)";
+      case "higher_rate": return "Higher Rate (30%)";
+      case "unverified":  return "Unverified (30%)";
+    }
+  };
+
+  const cisStatusToCompliance = (status: CISStatus): "compliant" | "at_risk" | "non_compliant" | "expired" => {
+    switch (status) {
+      case "gross":       return "compliant";
+      case "net":         return "at_risk";
+      case "higher_rate": return "non_compliant";
+      case "unverified":  return "expired";
+    }
+  };
+
+  const hasUnverified = subSeed.some((s) => s.status === "unverified");
+
+  return (
+    <div className="space-y-6">
+      {hasUnverified && (
+        <div className="flex items-start gap-3 p-4 rounded-xl border border-red-200 bg-red-50">
+          <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-red-600" />
+          <div>
+            <p className="text-sm font-semibold text-red-700">Unverified Subcontractors</p>
+            <p className="text-xs text-red-600 mt-0.5">
+              One or more subcontractors on this application are unverified. The higher rate (30%) deduction applies.
+              <Link href="/app/cis" className="ml-1 underline font-semibold">Verify them now</Link>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Deduction summary */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="kpi-card">
+          <span className="kpi-label">Gross Payments</span>
+          <span className="kpi-value">{formatCurrencyFull(totalGross)}</span>
+          <span className="text-xs text-[var(--text-muted)]">Before deductions</span>
+        </div>
+        <div className="kpi-card">
+          <span className="kpi-label">CIS Deductions</span>
+          <span className="kpi-value" style={{ color: "var(--warning)" }}>({formatCurrencyFull(totalDeduction)})</span>
+          <span className="text-xs text-[var(--text-muted)]">Withheld for HMRC</span>
+        </div>
+        <div className="kpi-card">
+          <span className="kpi-label">Net Payments</span>
+          <span className="kpi-value" style={{ color: "var(--success)" }}>{formatCurrencyFull(totalNet)}</span>
+          <span className="text-xs text-[var(--text-muted)]">Payable to subcontractors</span>
+        </div>
+      </div>
+
+      {/* Per-subcontractor breakdown */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
+          <h3 className="text-sm font-semibold">CIS Deduction Breakdown by Subcontractor</h3>
+          <Link href="/app/cis" className="btn btn-secondary btn-sm">
+            <ExternalLink size={13} /> Manage CIS
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Subcontractor</th>
+                <th>CIS Status</th>
+                <th className="text-right">Gross Payment</th>
+                <th className="text-right">Materials</th>
+                <th className="text-right">Labour</th>
+                <th>Rate</th>
+                <th className="text-right">Deduction</th>
+                <th className="text-right">Net Payment</th>
+                <th>DRC</th>
+              </tr>
+            </thead>
+            <tbody>
+              {subSeed.map((sub, i) => {
+                const d = deductions[i];
+                return (
+                  <tr key={sub.name}>
+                    <td className="font-semibold">{sub.name}</td>
+                    <td>
+                      <ComplianceBadge
+                        status={cisStatusToCompliance(sub.status)}
+                        label={cisStatusLabel(sub.status)}
+                      />
+                    </td>
+                    <td className="text-right tabular-nums">{formatCurrencyFull(d.gross_payment)}</td>
+                    <td className="text-right tabular-nums text-[var(--text-muted)]">{formatCurrencyFull(d.materials_cost)}</td>
+                    <td className="text-right tabular-nums">{formatCurrencyFull(d.labour_cost)}</td>
+                    <td className="text-sm font-mono">{(d.deduction_rate * 100).toFixed(0)}%</td>
+                    <td className="text-right tabular-nums font-semibold text-[var(--warning)]">
+                      {d.deduction_amount > 0 ? `(${formatCurrencyFull(d.deduction_amount)})` : "—"}
+                    </td>
+                    <td className="text-right tabular-nums font-bold text-[var(--success)]">
+                      {formatCurrencyFull(d.net_payment)}
+                    </td>
+                    <td>
+                      {sub.is_drc ? (
+                        <span className="badge chip-warning">DRC</span>
+                      ) : (
+                        <span className="text-xs text-[var(--text-muted)]">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="bg-[var(--bg-subtle)]">
+                <td colSpan={2} className="px-3.5 py-3 text-xs font-semibold text-[var(--text-muted)] uppercase">Totals</td>
+                <td className="px-3.5 py-3 text-right tabular-nums font-bold">{formatCurrencyFull(totalGross)}</td>
+                <td colSpan={2} />
+                <td />
+                <td className="px-3.5 py-3 text-right tabular-nums font-bold text-[var(--warning)]">
+                  ({formatCurrencyFull(totalDeduction)})
+                </td>
+                <td className="px-3.5 py-3 text-right tabular-nums font-bold text-[var(--success)]">
+                  {formatCurrencyFull(totalNet)}
+                </td>
+                <td />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* Visual flow */}
+      <div className="card p-5">
+        <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+          <TrendingDown size={15} style={{ color: "var(--warning)" }} /> Deduction Flow
+        </h3>
+        <div className="flex items-center gap-2 flex-wrap">
+          {[
+            { label: "Gross Payment", value: formatCurrencyFull(totalGross), color: "var(--text-primary)" },
+            { label: "less Materials", value: `−${formatCurrencyFull(deductions.reduce((s,d)=>s+d.materials_cost,0))}`, color: "var(--text-muted)" },
+            { label: "Labour Amount", value: formatCurrencyFull(deductions.reduce((s,d)=>s+d.labour_cost,0)), color: "var(--info)" },
+            { label: "less CIS Rate", value: `Rate applied`, color: "var(--text-muted)" },
+            { label: "CIS Deduction", value: `(${formatCurrencyFull(totalDeduction)})`, color: "var(--warning)" },
+            { label: "Net Payment", value: formatCurrencyFull(totalNet), color: "var(--success)" },
+          ].map((step, i) => (
+            <div key={step.label} className="flex items-center gap-2">
+              <div className="text-center">
+                <p className="text-xs uppercase tracking-wide mb-0.5" style={{ color: "var(--text-muted)" }}>{step.label}</p>
+                <p className="text-sm font-bold" style={{ color: step.color }}>{step.value}</p>
+              </div>
+              {i < 5 && <span style={{ color: "var(--text-muted)" }}>→</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {subSeed.some((s) => s.is_drc) && (
+        <div className="card p-4 flex items-start gap-3 border-l-4 border-amber-400">
+          <AlertTriangle size={16} className="mt-0.5 flex-shrink-0 text-amber-600" />
+          <div>
+            <p className="text-sm font-semibold text-amber-700">Domestic Reverse Charge Notice</p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              One or more subcontractors on this application are subject to the Domestic Reverse Charge (DRC).
+              No VAT is charged on their invoices. You must account for the VAT under DRC in your own VAT return.
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Tab: HGCRA ─────────────────────────────────────────────────────────────────
+
+function HGCRATab({ app }: { app: Application }) {
+  const applicationId = app.id;
+
+  const timeline = calculatePaymentTimeline({
+    application_date: app.submission_date ?? app.period_to,
+    payment_terms_days: 30,
+    prescribed_period_days: 5,
+    paid_at: app.status === "Paid" ? app.payment_received_date : null,
+  });
+
+  const daysOverdue = getDaysOverdue(timeline);
+
+  const statusToCompliance = (
+    s: typeof timeline.status
+  ): "compliant" | "at_risk" | "non_compliant" | "expired" | "pending" => {
+    switch (s) {
+      case "on_track":        return "compliant";
+      case "pln_overdue":     return "non_compliant";
+      case "payment_overdue": return "non_compliant";
+      case "suspended":       return "expired";
+      case "paid":            return "compliant";
+      default:                return "pending";
+    }
+  };
+
+  const statusLabel = (s: typeof timeline.status): string => {
+    switch (s) {
+      case "on_track":        return "On Track";
+      case "pln_overdue":     return "PLN Overdue";
+      case "payment_overdue": return "Payment Overdue";
+      case "suspended":       return "Suspended";
+      case "paid":            return "Paid";
+    }
+  };
+
+  return (
+    <FeatureGate flag="hgcra_suite">
+      <div className="space-y-6">
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold mb-4 flex items-center gap-2">
+            <Scale size={14} className="text-[var(--primary)]" />
+            HGCRA Payment Timeline — s.110/s.111
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="flex flex-col items-center gap-2 p-4 rounded-xl bg-[var(--bg-muted)]">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                PLN Cutoff
+              </span>
+              <CountdownClock
+                deadline={timeline.pln_cutoff}
+                label={timeline.pln_cutoff.toLocaleDateString("en-GB")}
+                urgencyThresholdDays={3}
+              />
+            </div>
+            <div className="flex flex-col items-center gap-2 p-4 rounded-xl bg-[var(--bg-muted)]">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Final Date for Payment
+              </span>
+              <CountdownClock
+                deadline={timeline.final_date_for_payment}
+                label={timeline.final_date_for_payment.toLocaleDateString("en-GB")}
+                urgencyThresholdDays={5}
+              />
+            </div>
+            <div className="flex flex-col items-center gap-2 p-4 rounded-xl bg-[var(--bg-muted)]">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Compliance Status
+              </span>
+              <ComplianceBadge
+                status={statusToCompliance(timeline.status)}
+                label={statusLabel(timeline.status)}
+              />
+            </div>
+            <div className="flex flex-col items-center gap-2 p-4 rounded-xl bg-[var(--bg-muted)]">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                Days Overdue
+              </span>
+              <span
+                className={cn(
+                  "text-2xl font-bold",
+                  daysOverdue > 0 ? "text-red-600" : "text-green-600"
+                )}
+              >
+                {daysOverdue > 0 ? `${daysOverdue}d` : "—"}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold mb-4">Key HGCRA Dates</h3>
+          <div className="space-y-3">
+            {[
+              {
+                label: "Application Date",
+                value: formatDate(timeline.application_date.toISOString()),
+              },
+              {
+                label: "Payment Due Date (s.110)",
+                value: formatDate(timeline.due_date.toISOString()),
+              },
+              {
+                label: "PLN Cutoff (FDLP − 5 days)",
+                value: formatDate(timeline.pln_cutoff.toISOString()),
+              },
+              {
+                label: "Final Date for Payment (s.111)",
+                value: formatDate(timeline.final_date_for_payment.toISOString()),
+              },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex items-center justify-between gap-4">
+                <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">
+                  {label}
+                </span>
+                <span className="text-sm font-semibold">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="card p-5">
+          <h3 className="text-sm font-semibold mb-4">CIS Deduction Summary</h3>
+          <div className="p-4 rounded-xl bg-amber-50 border border-amber-200">
+            <p className="text-xs font-semibold text-amber-800 uppercase tracking-wide mb-1">
+              Phase 10 — CIS Integration
+            </p>
+            <p className="text-sm text-amber-700">
+              CIS deduction summary will be shown here in Phase 10. Navigate to the CIS tab for
+              current deduction details.
+            </p>
+          </div>
+        </div>
+
+        <div className="card p-4">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-3">
+            HGCRA Actions
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/applications/${applicationId}/pay-less-notice`}
+              className="btn btn-secondary btn-sm"
+            >
+              <FileText size={13} /> Pay Less Notice (s.111)
+            </Link>
+            <Link
+              href={`/applications/${applicationId}/suspension-notice`}
+              className="btn btn-secondary btn-sm"
+            >
+              <AlertTriangle size={13} /> Suspension Notice (s.112)
+            </Link>
+            <Link
+              href={`/projects/${app.project_id}/hgcra-dashboard`}
+              className="btn btn-secondary btn-sm"
+            >
+              <Scale size={13} /> HGCRA Dashboard
+            </Link>
+          </div>
+        </div>
+      </div>
+    </FeatureGate>
+  );
+}
+
+// ─── Tab: Client Portal ─────────────────────────────────────────────────────────
+
+interface PortalInviteRow {
+  id: string;
+  email_sent_to: string | null;
+  sent_at: string | null;
+  expires_at: string;
+  revoked_at: string | null;
+  last_accessed_at: string | null;
+}
+
+function ClientPortalTab({ applicationId, workspaceId }: { applicationId: string; workspaceId: string }) {
+  const [showModal, setShowModal] = useState(false);
+  const [email, setEmail] = useState("");
+  const [sending, setSending] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [invites, setInvites] = useState<PortalInviteRow[]>([]);
+  const [loadingInvites, setLoadingInvites] = useState(true);
+
+  useEffect(() => {
+    async function fetchInvites() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("portal_access_tokens")
+        .select("id, email_sent_to, sent_at, expires_at, revoked_at, last_accessed_at")
+        .eq("application_id", applicationId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      setInvites((data as PortalInviteRow[] | null) ?? []);
+      setLoadingInvites(false);
+    }
+    fetchInvites();
+  }, [applicationId, success]);
+
+  const sendInvite = async () => {
+    if (!email.trim() || !email.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/portal/send-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ application_id: applicationId, email: email.trim(), workspace_id: workspaceId }),
+      });
+      const json = (await res.json()) as { success?: boolean; error?: string };
+      if (!res.ok || !json.success) {
+        setError(json.error ?? "Failed to send invite. Please try again.");
+      } else {
+        setSuccess(email.trim());
+        setEmail("");
+        setShowModal(false);
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const getInviteStatus = (invite: PortalInviteRow): { label: string; chip: string } => {
+    if (invite.revoked_at) return { label: "Revoked", chip: "chip-danger" };
+    if (new Date(invite.expires_at) < new Date()) return { label: "Expired", chip: "chip-muted" };
+    return { label: "Active", chip: "chip-success" };
+  };
+
+  if (!getFlag("client_portal")) {
+    return (
+      <div className="card">
+        <div className="empty-state">
+          <div className="empty-icon"><Share2 size={22} /></div>
+          <h3 className="text-base font-semibold">Client Portal</h3>
+          <p className="text-sm text-[var(--text-muted)] max-w-xs">
+            The Client Portal feature requires an Enterprise plan. Contact your administrator to enable secure client sharing.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {success && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border border-green-200 bg-green-50">
+          <CheckCircle2 size={16} className="text-green-600 flex-shrink-0" />
+          <p className="text-sm text-green-700">Invite sent to <strong>{success}</strong>. They will receive a secure link valid for 7 days.</p>
+        </div>
+      )}
+
+      <div className="card p-5">
+        <div className="flex items-start justify-between gap-4 mb-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "var(--primary-light)" }}>
+              <Share2 size={18} style={{ color: "var(--primary)" }} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold">Share with Client</h3>
+              <p className="text-sm text-[var(--text-muted)] mt-0.5">
+                Send a secure, time-limited link that allows your client or employer to view this application in a read-only portal.
+              </p>
+            </div>
+          </div>
+          <button
+            className="btn btn-primary btn-sm flex-shrink-0"
+            onClick={() => { setShowModal(true); setError(null); setSuccess(null); }}
+          >
+            <Mail size={13} /> Send Client Portal Invite
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <div className="p-3 rounded-lg bg-[var(--bg-muted)] border border-[var(--border)]">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">Access Type</p>
+            <p className="text-sm font-medium">Read-only</p>
+          </div>
+          <div className="p-3 rounded-lg bg-[var(--bg-muted)] border border-[var(--border)]">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">Link Validity</p>
+            <p className="text-sm font-medium">7 days</p>
+          </div>
+          <div className="p-3 rounded-lg bg-[var(--bg-muted)] border border-[var(--border)]">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1">Invites Sent</p>
+            <p className="text-sm font-medium">{invites.length}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b border-[var(--border)]">
+          <h3 className="text-sm font-semibold">Invite History</h3>
+        </div>
+        {loadingInvites ? (
+          <div className="p-5 space-y-3">
+            {[...Array(3)].map((_, i) => <div key={i} className="skeleton h-10 rounded-xl" />)}
+          </div>
+        ) : invites.length === 0 ? (
+          <div className="empty-state p-8">
+            <div className="empty-icon"><Mail size={20} /></div>
+            <h3 className="text-sm font-semibold">No invites sent yet</h3>
+            <p className="text-xs text-[var(--text-muted)] max-w-xs">
+              Send a client portal invite to share this application with your employer or client.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-[var(--border)]">
+            {invites.map((invite) => {
+              const { label, chip } = getInviteStatus(invite);
+              return (
+                <div key={invite.id} className="px-5 py-3 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "var(--primary-light)" }}>
+                      <Mail size={12} style={{ color: "var(--primary)" }} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{invite.email_sent_to ?? "Unknown"}</p>
+                      <p className="text-xs text-[var(--text-muted)]">
+                        Sent {invite.sent_at ? formatDate(invite.sent_at) : "—"} · Expires {formatDate(invite.expires_at)}
+                        {invite.last_accessed_at && ` · Last viewed ${formatDate(invite.last_accessed_at)}`}
+                      </p>
+                    </div>
+                  </div>
+                  <span className={cn("badge flex-shrink-0", chip)}>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
+        >
+          <div className="card w-full max-w-md p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Share2 size={16} style={{ color: "var(--primary)" }} />
+                <h2 className="text-base font-semibold">Send Client Portal Invite</h2>
+              </div>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setShowModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="form-label" htmlFor="portal-email">Client Email Address</label>
+                <input
+                  id="portal-email"
+                  type="email"
+                  className="form-input w-full"
+                  placeholder="employer@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") sendInvite(); }}
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-[var(--info-bg)] border border-blue-200">
+                <Shield size={14} className="mt-0.5 flex-shrink-0 text-blue-600" />
+                <p className="text-xs text-blue-700">
+                  A secure link valid for 7 days will be sent to this email address. The recipient can view this application in a read-only portal — no login required.
+                </p>
+              </div>
+
+              {error && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-[var(--danger-bg)] border border-red-200">
+                  <AlertTriangle size={14} className="flex-shrink-0 text-red-600" />
+                  <p className="text-xs text-red-700">{error}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-[var(--border)]">
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowModal(false)} disabled={sending}>
+                Cancel
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={sendInvite} disabled={sending || !email.trim()}>
+                {sending ? <><RefreshCw size={13} className="animate-spin" /> Sending…</> : <><Send size={13} /> Send Invite</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Loading Skeleton ───────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
@@ -1032,6 +1651,7 @@ export default function ApplicationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [app, setApp] = useState<Application | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
+  const [workspaceId, setWorkspaceId] = useState<string>("");
 
   useEffect(() => {
     async function load() {
@@ -1043,6 +1663,12 @@ export default function ApplicationDetailPage() {
           .eq("id", applicationId)
           .single();
         setApp(data ?? SEED_APP);
+        const { data: membership } = await supabase
+          .from("workspace_memberships")
+          .select("workspace_id")
+          .limit(1)
+          .single();
+        if (membership) setWorkspaceId((membership as { workspace_id: string }).workspace_id);
       } catch {
         setApp(SEED_APP);
       } finally {
@@ -1157,11 +1783,14 @@ export default function ApplicationDetailPage() {
         {activeTab === "Change Events"         && <ChangeEventsTab changes={SEED_CHANGES} />}
         {activeTab === "Retention"             && <RetentionTab app={app} releases={SEED_RETENTION_RELEASES} />}
         {activeTab === "SMPE / Subcontractors" && <SMPETab subcontractors={SEED_SUBCONTRACTORS} />}
+        {activeTab === "CIS"                   && <CISTab app={app} />}
+        {activeTab === "HGCRA"                 && <HGCRATab app={app} />}
         {activeTab === "Supporting Documents"  && <SupportingDocumentsTab documents={SEED_DOCUMENTS} />}
         {activeTab === "Correspondence"        && <CorrespondenceTab items={SEED_CORRESPONDENCE} />}
         {activeTab === "Dispute Log"           && <DisputeLogTab disputes={SEED_DISPUTES} />}
         {activeTab === "Activity"              && <ActivityTab entries={SEED_ACTIVITY} />}
         {activeTab === "AI Narrative"          && <AINarrativeTab app={app} />}
+        {activeTab === "Client Portal"         && <ClientPortalTab applicationId={applicationId} workspaceId={workspaceId} />}
       </div>
     </div>
   );

@@ -204,7 +204,7 @@ function Footer() {
               <p className="text-xs font-semibold uppercase tracking-widest text-white/40 mb-4">{group}</p>
               <ul className="space-y-2.5">
                 {links.map((l) => (
-                  <li key={l.href}>
+                  <li key={l.label}>
                     <Link href={l.href} className="text-sm text-white/60 hover:text-white transition-colors">
                       {l.label}
                     </Link>

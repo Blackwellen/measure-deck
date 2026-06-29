@@ -123,7 +123,7 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   // ── 4. Auth pages — redirect already-signed-in users to /app/dashboard ───
   const AUTH_ONLY_PATHS = ["/login", "/signup", "/forgot-password"];
   if (user && AUTH_ONLY_PATHS.some((p) => pathname === p)) {
-    return NextResponse.redirect(new URL("/app/dashboard", request.url));
+    return NextResponse.redirect(new URL("/app/home", request.url));
   }
 
   // ── 5. All other paths (public) — pass through ────────────────────────────

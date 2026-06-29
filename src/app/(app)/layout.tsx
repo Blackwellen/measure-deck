@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { ShellClient } from "./shell-client";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 
 export default async function AppLayout({
   children,
@@ -19,5 +20,9 @@ export default async function AppLayout({
       }
     : null;
 
-  return <ShellClient user={userData}>{children}</ShellClient>;
+  return (
+    <ErrorBoundary>
+      <ShellClient user={userData}>{children}</ShellClient>
+    </ErrorBoundary>
+  );
 }

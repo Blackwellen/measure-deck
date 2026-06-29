@@ -29,8 +29,12 @@ const step2Schema = z.object({
 });
 
 const step3Schema = z.object({
-  retention_percent: z.coerce.number().min(0).max(100).optional(),
-  payment_terms: z.string().optional(),
+  retention_percent: z.coerce.number().min(0).max(100).optional().default(5),
+  payment_terms_days: z.coerce.number().min(1).max(365).optional().default(30),
+  dlp_months: z.coerce.number().min(0).max(120).optional().default(12),
+  nec4_option: z.string().optional(),
+  contract_administrator: z.string().optional(),
+  contract_administrator_company: z.string().optional(),
   notice_requirements: z.string().optional(),
 });
 
@@ -43,12 +47,14 @@ const step4Schema = z.object({
 type Step1Data = z.infer<typeof step1Schema>;
 type Step2Data = z.infer<typeof step2Schema>;
 type Step3Data = z.infer<typeof step3Schema>;
+
+const NEC4_OPTIONS = ["Option A", "Option B", "Option C", "Option D", "Option E", "Option F"];
 type Step4Data = z.infer<typeof step4Schema>;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DRAFT_KEY = "md_project_wizard_draft";
-const CONTRACT_TYPES = ["JCT Standard", "JCT Design & Build", "NEC3", "NEC4", "FIDIC", "Bespoke", "Other"];
+const CONTRACT_TYPES = ["JCT SBC", "JCT Design & Build", "NEC4 ECC", "NEC4 ECS", "NEC4 ECS SP", "Bespoke", "Other"];
 const PROCUREMENT_ROUTES = ["Traditional", "Design & Build", "Management Contracting", "Construction Management", "PFI/PPP", "Two-Stage"];
 
 const STEPS = [
@@ -169,8 +175,12 @@ export function ProjectWizard({ onClose, mode = "modal", onSuccess }: ProjectWiz
         start_date: v2.start_date,
         end_date: v2.end_date || null,
         procurement_route: v2.procurement_route || null,
-        retention_percent: v3.retention_percent ?? null,
-        payment_terms: v3.payment_terms || null,
+        retention_percent: v3.retention_percent ?? 5,
+        payment_terms_days: v3.payment_terms_days ?? 30,
+        dlp_months: v3.dlp_months ?? 12,
+        nec4_option: v3.nec4_option || null,
+        contract_administrator: v3.contract_administrator || null,
+        contract_administrator_company: v3.contract_administrator_company || null,
         notice_requirements: v3.notice_requirements || null,
         project_lead: v4.project_lead || null,
         commercial_lead: v4.commercial_lead || null,
@@ -220,10 +230,13 @@ export function ProjectWizard({ onClose, mode = "modal", onSuccess }: ProjectWiz
           <SummaryRow label="Procurement" value={v2.procurement_route} />
         </SummarySection>
       )}
-      {(v3.retention_percent || v3.payment_terms) && (
+      {(v3.retention_percent || v3.payment_terms_days) && (
         <SummarySection title="Commercial">
           <SummaryRow label="Retention" value={v3.retention_percent ? `${v3.retention_percent}%` : undefined} />
-          <SummaryRow label="Payment Terms" value={v3.payment_terms} />
+          <SummaryRow label="Payment Terms" value={v3.payment_terms_days ? `${v3.payment_terms_days} days` : undefined} />
+          <SummaryRow label="DLP" value={v3.dlp_months ? `${v3.dlp_months} months` : undefined} />
+          {v3.nec4_option && <SummaryRow label="NEC4 Option" value={v3.nec4_option} />}
+          {v3.contract_administrator && <SummaryRow label="Contract Admin" value={v3.contract_administrator} />}
         </SummarySection>
       )}
       {(v4.project_lead || v4.commercial_lead) && (
@@ -388,29 +401,74 @@ export function ProjectWizard({ onClose, mode = "modal", onSuccess }: ProjectWiz
         <div className="space-y-5 max-w-lg">
           <div>
             <h3 className="text-[15px] font-600 mb-1" style={{ color: "var(--text-primary)" }}>Commercial Setup</h3>
-            <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>Set financial and notice terms.</p>
+            <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>Set financial, notice and contract admin terms.</p>
           </div>
 
-          <div>
-            <label className="form-label">Retention (%)</label>
-            <input
-              {...form3.register("retention_percent")}
-              type="number"
-              className="form-input"
-              placeholder="e.g. 3"
-              min="0"
-              max="100"
-              step="0.5"
-            />
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="form-label">Retention (%)</label>
+              <input
+                {...form3.register("retention_percent")}
+                type="number"
+                className="form-input"
+                placeholder="5"
+                min="0"
+                max="100"
+                step="0.5"
+              />
+            </div>
+            <div>
+              <label className="form-label">Payment Terms (days)</label>
+              <input
+                {...form3.register("payment_terms_days")}
+                type="number"
+                className="form-input"
+                placeholder="30"
+                min="1"
+                max="365"
+              />
+            </div>
+            <div>
+              <label className="form-label">DLP (months)</label>
+              <input
+                {...form3.register("dlp_months")}
+                type="number"
+                className="form-input"
+                placeholder="12"
+                min="0"
+                max="120"
+              />
+            </div>
           </div>
 
-          <div>
-            <label className="form-label">Payment Terms</label>
-            <input
-              {...form3.register("payment_terms")}
-              className="form-input"
-              placeholder="e.g. 30 days from invoice"
-            />
+          {/* NEC4 option — shown only when contract_type starts with NEC4 */}
+          {v2.contract_type?.startsWith("NEC4") && (
+            <div>
+              <label className="form-label">NEC4 Pricing Option</label>
+              <select {...form3.register("nec4_option")} className="form-input">
+                <option value="">Select NEC4 option…</option>
+                {NEC4_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="form-label">Contract Administrator</label>
+              <input
+                {...form3.register("contract_administrator")}
+                className="form-input"
+                placeholder="Full name"
+              />
+            </div>
+            <div>
+              <label className="form-label">CA Company</label>
+              <input
+                {...form3.register("contract_administrator_company")}
+                className="form-input"
+                placeholder="Company name"
+              />
+            </div>
           </div>
 
           <div>
@@ -474,8 +532,11 @@ export function ProjectWizard({ onClose, mode = "modal", onSuccess }: ProjectWiz
           </SummarySection>
 
           <SummarySection title="Commercial">
-            <SummaryRow label="Retention" value={v3.retention_percent ? `${v3.retention_percent}%` : "—"} />
-            <SummaryRow label="Payment Terms" value={v3.payment_terms || "—"} />
+            <SummaryRow label="Retention" value={v3.retention_percent ? `${v3.retention_percent}%` : "5%"} />
+            <SummaryRow label="Payment Terms" value={v3.payment_terms_days ? `${v3.payment_terms_days} days` : "30 days"} />
+            <SummaryRow label="DLP" value={v3.dlp_months ? `${v3.dlp_months} months` : "12 months"} />
+            {v3.nec4_option && <SummaryRow label="NEC4 Option" value={v3.nec4_option} />}
+            {v3.contract_administrator && <SummaryRow label="Contract Admin" value={v3.contract_administrator} />}
             <SummaryRow label="Notice Requirements" value={v3.notice_requirements || "—"} />
           </SummarySection>
 

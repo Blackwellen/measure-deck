@@ -77,20 +77,61 @@ const generalSchema = z.object({
   description: z.string().optional(),
   timezone: z.string(),
   currency: z.string(),
+  default_contract_type: z.string(),
+  default_retention_rate: z.coerce.number().min(0).max(100),
+  default_payment_terms: z.coerce.number().min(1),
+  default_dlp_months: z.coerce.number().min(0),
 });
 type GeneralValues = z.infer<typeof generalSchema>;
 
 const TIMEZONES = ["Europe/London", "Europe/Paris", "Europe/Berlin", "America/New_York", "America/Chicago", "America/Los_Angeles"];
 const CURRENCIES = [{ value: "GBP", label: "GBP — British Pound" }, { value: "EUR", label: "EUR — Euro" }, { value: "USD", label: "USD — US Dollar" }];
+const CONTRACT_TYPES = [
+  { value: "JCT_SBC", label: "JCT Standard Building Contract" },
+  { value: "JCT_D&B", label: "JCT Design & Build" },
+  { value: "JCT_MW", label: "JCT Minor Works" },
+  { value: "NEC4_ECC", label: "NEC4 Engineering & Construction Contract" },
+  { value: "NEC4_PSC", label: "NEC4 Professional Services Contract" },
+  { value: "FIDIC", label: "FIDIC Red Book" },
+  { value: "OTHER", label: "Other / Bespoke" },
+];
 
 function GeneralTab() {
   const { register, handleSubmit, formState: { errors, isSubmitting, isDirty } } = useForm<GeneralValues>({
     resolver: zodResolver(generalSchema),
-    defaultValues: { name: "MeasureDeck Workspace", slug: "measuredeck-workspace", description: "Commercial management for construction projects.", timezone: "Europe/London", currency: "GBP" },
+    defaultValues: {
+      name: "MeasureDeck Workspace",
+      slug: "measuredeck-workspace",
+      description: "Commercial management for construction projects.",
+      timezone: "Europe/London",
+      currency: "GBP",
+      default_contract_type: "JCT_SBC",
+      default_retention_rate: 5,
+      default_payment_terms: 30,
+      default_dlp_months: 12,
+    },
   });
 
   async function onSubmit(data: GeneralValues) {
     try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Try to update workspaces table with contract defaults
+        await supabase
+          .from("workspaces")
+          .update({
+            name: data.name,
+            slug: data.slug,
+            timezone: data.timezone,
+            currency: data.currency,
+            default_contract_type: data.default_contract_type,
+            default_retention_rate: data.default_retention_rate,
+            default_payment_terms: data.default_payment_terms,
+            default_dlp_months: data.default_dlp_months,
+          })
+          .eq("owner_id", user.id);
+      }
       toast.success("Workspace settings saved");
     } catch { toast.error("Failed to save"); }
   }
@@ -135,6 +176,55 @@ function GeneralTab() {
             <select {...register("currency")} className="form-input">
               {CURRENCIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Contract Defaults */}
+      <div className="card p-5 flex flex-col gap-4">
+        <h3 className="text-sm font-semibold">Contract Defaults</h3>
+        <p className="text-xs text-[var(--text-muted)]">These values pre-populate new projects and contracts created in this workspace.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="sm:col-span-2">
+            <label className="form-label">Default Contract Type</label>
+            <select {...register("default_contract_type")} className="form-input">
+              {CONTRACT_TYPES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="form-label">Default Retention Rate (%)</label>
+            <input
+              {...register("default_retention_rate")}
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              className="form-input"
+              placeholder="5"
+            />
+            {errors.default_retention_rate && <p className="text-xs text-[var(--danger)] mt-1">{errors.default_retention_rate.message}</p>}
+          </div>
+          <div>
+            <label className="form-label">Default Payment Terms (days)</label>
+            <input
+              {...register("default_payment_terms")}
+              type="number"
+              min={1}
+              className="form-input"
+              placeholder="30"
+            />
+            {errors.default_payment_terms && <p className="text-xs text-[var(--danger)] mt-1">{errors.default_payment_terms.message}</p>}
+          </div>
+          <div>
+            <label className="form-label">Default DLP Duration (months)</label>
+            <input
+              {...register("default_dlp_months")}
+              type="number"
+              min={0}
+              className="form-input"
+              placeholder="12"
+            />
+            {errors.default_dlp_months && <p className="text-xs text-[var(--danger)] mt-1">{errors.default_dlp_months.message}</p>}
           </div>
         </div>
       </div>

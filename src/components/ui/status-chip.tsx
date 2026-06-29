@@ -23,6 +23,10 @@ function resolveVariant(status: string): ChipVariant {
     case "compliant":
     case "done":
     case "current":
+    case "accepted":
+    case "deemed_accepted":
+    case "implemented":
+    case "gross":
       return "chip-success";
 
     case "draft":
@@ -32,17 +36,28 @@ function resolveVariant(status: string): ChipVariant {
     case "archived":
     case "closed":
     case "withdrawn":
+    case "quotation_requested":
+    case "quotation_submitted":
+    case "pln_issued":
+    case "unverified":
       return "chip-muted";
 
     case "submitted":
     case "in_progress":
     case "in_negotiation":
     case "under_review":
+    case "pm_instruction_issued":
+    case "ce_notified":
+    case "issued":
+    case "net":
       return "chip-info";
 
     case "warning":
     case "expiring":
     case "on_hold":
+    case "pln_overdue":
+    case "payment_overdue":
+    case "unmatched":
       return "chip-warning";
 
     case "disputed":
@@ -51,7 +66,13 @@ function resolveVariant(status: string): ChipVariant {
     case "non_compliant":
     case "cancelled":
     case "superseded":
+    case "suspended":
+    case "terminated":
+    case "higher_rate":
       return "chip-danger";
+
+    case "completed":
+      return "chip-success";
 
     default:
       return "chip-muted";

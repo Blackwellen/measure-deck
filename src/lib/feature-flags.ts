@@ -22,7 +22,28 @@ export type FeatureFlag =
   | "multi_workspace"
   | "api_access"
   | "sso"
-  | "white_label";
+  | "white_label"
+  // ── V2 Enterprise Flags ──────────────────────────────────────────────────────
+  | "nec4_ce_engine"
+  | "hgcra_suite"
+  | "cis_compliance"
+  | "retention_module"
+  | "cashflow_forecasting"
+  | "evm_dashboard"
+  | "subcontract_orders"
+  | "supply_chain_kyc"
+  | "pc_snagging"
+  | "ai_contract_analyser"
+  | "ai_ce_identifier"
+  | "ai_daywork_capture"
+  | "client_portal"
+  | "cross_project_analytics"
+  | "adjudication_module"
+  | "asta_import"
+  | "programme_notifications"
+  | "delay_analysis"
+  | "fluctuations_module"
+  | "mobile_dayworks";
 
 type FlagDefaults = Record<FeatureFlag, boolean>;
 
@@ -34,8 +55,8 @@ const FLAG_DEFAULTS: FlagDefaults = {
   // ── v1 Core ──────────────────────────────────────────────────────────────
   v1: true,
 
-  // ── v1.5 BIM Extension ───────────────────────────────────────────────────
-  v1_5_bim: false,
+  // ── BIM Extension (enabled) ──────────────────────────────────────────────
+  v1_5_bim: true,
 
   // ── AI ───────────────────────────────────────────────────────────────────
   ai_lite: false,
@@ -67,6 +88,28 @@ const FLAG_DEFAULTS: FlagDefaults = {
   api_access: false,
   sso: false,
   white_label: false,
+
+  // ── V2 Enterprise Modules ─────────────────────────────────────────────────
+  nec4_ce_engine: false,
+  hgcra_suite: false,
+  cis_compliance: false,
+  retention_module: false,
+  cashflow_forecasting: false,
+  evm_dashboard: false,
+  subcontract_orders: false,
+  supply_chain_kyc: false,
+  pc_snagging: false,
+  ai_contract_analyser: false,
+  ai_ce_identifier: false,
+  ai_daywork_capture: false,
+  client_portal: false,
+  cross_project_analytics: false,
+  adjudication_module: false,
+  asta_import: false,
+  programme_notifications: false,
+  delay_analysis: false,
+  fluctuations_module: false,
+  mobile_dayworks: false,
 };
 
 /**

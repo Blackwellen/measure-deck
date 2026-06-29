@@ -51,6 +51,12 @@ export interface WizardShellProps {
   successContent?: React.ReactNode;
   /** Show the right panel at all? */
   showRightPanel?: boolean;
+  /** Unique key for localStorage draft persistence (e.g. 'change-wizard') */
+  wizardId?: string;
+  /** Current form data to persist in draft */
+  formData?: Record<string, unknown>;
+  /** Called when a draft is resumed with the saved step index and form data */
+  onDraftResume?: (step: number, data: Record<string, unknown>) => void;
 }
 
 // ─── Step indicator animations ───────────────────────────────────────────────
@@ -162,6 +168,11 @@ function SuccessOverlay({ children }: { children: React.ReactNode }) {
 
 // ─── WizardShell ──────────────────────────────────────────────────────────────
 
+interface WizardDraft {
+  currentStep: number;
+  formData: Record<string, unknown>;
+}
+
 export function WizardShell({
   steps,
   currentStep,
@@ -181,8 +192,72 @@ export function WizardShell({
   showSuccess = false,
   successContent,
   showRightPanel = true,
+  wizardId,
+  formData,
+  onDraftResume,
 }: WizardShellProps) {
   const [direction, setDirection] = React.useState(1);
+  const [showDraftDialog, setShowDraftDialog] = React.useState(false);
+  const [pendingDraft, setPendingDraft] = React.useState<WizardDraft | null>(null);
+
+  const draftKey = wizardId ? `wizard-draft-${wizardId}` : null;
+
+  React.useEffect(() => {
+    if (!draftKey) return;
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (saved) {
+        const parsed = JSON.parse(saved) as WizardDraft;
+        setPendingDraft(parsed);
+        setShowDraftDialog(true);
+      }
+    } catch {
+      // corrupted draft — ignore
+    }
+  }, [draftKey]);
+
+  React.useEffect(() => {
+    if (!draftKey || showSuccess) return;
+    try {
+      const draft: WizardDraft = {
+        currentStep,
+        formData: formData ?? {},
+      };
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+    } catch {
+      // storage unavailable — ignore
+    }
+  }, [draftKey, currentStep, formData, showSuccess]);
+
+  React.useEffect(() => {
+    if (showSuccess && draftKey) {
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {
+        // ignore
+      }
+    }
+  }, [showSuccess, draftKey]);
+
+  function handleResumeDraft() {
+    if (pendingDraft && onDraftResume) {
+      onDraftResume(pendingDraft.currentStep, pendingDraft.formData);
+    }
+    setShowDraftDialog(false);
+    setPendingDraft(null);
+  }
+
+  function handleDiscardDraft() {
+    if (draftKey) {
+      try {
+        localStorage.removeItem(draftKey);
+      } catch {
+        // ignore
+      }
+    }
+    setShowDraftDialog(false);
+    setPendingDraft(null);
+  }
 
   const handleBack = () => {
     if (currentStep > 0) {
@@ -203,18 +278,94 @@ export function WizardShell({
 
   const stepLabel = nextLabel ?? (isLastStep ? "Submit" : "Next");
 
+  /* Lock body scroll while the wizard modal is open. */
+  React.useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  /* Close on Escape. */
+  React.useEffect(() => {
+    if (!onClose) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   return (
-    <div
-      className="flex flex-col bg-[var(--bg-surface)] rounded-[var(--radius-2xl)] overflow-hidden"
-      style={{
-        boxShadow: "var(--shadow-lg)",
-        minHeight: "min(90vh, 720px)",
-        maxHeight: "90vh",
-        width: "100%",
-        maxWidth: "1100px",
-        margin: "0 auto",
-      }}
-    >
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6">
+      {/* Draft resume dialog */}
+      {showDraftDialog && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={handleDiscardDraft}
+          />
+          <div
+            className="relative rounded-2xl px-6 py-5 w-full max-w-sm flex flex-col gap-4"
+            style={{
+              background: "var(--bg-surface)",
+              boxShadow: "var(--shadow-lg)",
+              border: "1px solid var(--border)",
+            }}
+          >
+            <div>
+              <h3 className="text-[15px] font-700" style={{ color: "var(--text-primary)" }}>
+                Resume draft?
+              </h3>
+              <p className="text-[13px] mt-1" style={{ color: "var(--text-muted)" }}>
+                You have an unsaved draft for this wizard. Would you like to continue where you left off?
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleDiscardDraft}
+                className="btn btn-secondary btn-sm flex-1"
+              >
+                Start fresh
+              </button>
+              <button
+                type="button"
+                onClick={handleResumeDraft}
+                className="btn btn-primary btn-sm flex-1"
+              >
+                Resume draft
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Backdrop */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="absolute inset-0"
+        style={{ background: "rgba(15,23,42,0.55)", backdropFilter: "blur(2px)" }}
+        onClick={onClose}
+      />
+
+      {/* Modal card */}
+      <motion.div
+        initial={{ opacity: 0, y: 16, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 16, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 300, damping: 26 }}
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+        className="relative flex flex-col bg-[var(--bg-surface)] rounded-[var(--radius-2xl)] overflow-hidden"
+        style={{
+          boxShadow: "var(--shadow-lg)",
+          minHeight: "min(90vh, 720px)",
+          maxHeight: "90vh",
+          width: "100%",
+          maxWidth: "1100px",
+        }}
+      >
       {/* ── Header ── */}
       <div
         className="flex-shrink-0 border-b px-6 py-4"
@@ -351,6 +502,7 @@ export function WizardShell({
           </div>
         </div>
       )}
+      </motion.div>
     </div>
   );
 }

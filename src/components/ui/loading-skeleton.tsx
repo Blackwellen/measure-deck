@@ -88,3 +88,86 @@ export function SkeletonPageHeader() {
     </div>
   );
 }
+
+// ─── SkeletonCardVariant ────────────────────────────────────────────────────
+// Generic card placeholder matching the standard .card layout
+
+export function SkeletonCardVariant() {
+  return (
+    <div className="rounded-xl border p-5 flex flex-col gap-3" style={{ borderColor: "var(--border)" }}>
+      <div className="flex items-center justify-between">
+        <Sk className="rounded h-4 w-1/3" />
+        <Sk className="rounded h-5 w-16" />
+      </div>
+      <Sk className="rounded h-3 w-2/3" />
+      <Sk className="rounded h-3 w-1/2" />
+      <div className="flex gap-2 mt-2">
+        <Sk className="rounded h-7 w-20" />
+        <Sk className="rounded h-7 w-20" />
+      </div>
+    </div>
+  );
+}
+
+// ─── SkeletonListRow ────────────────────────────────────────────────────────
+// Matches a standard table/list row with leading avatar/icon and trailing action
+
+export function SkeletonListRow() {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
+      <Sk className="rounded-full h-8 w-8 shrink-0" />
+      <div className="flex flex-col gap-1.5 flex-1">
+        <Sk className="rounded h-3 w-1/3" />
+        <Sk className="rounded h-3 w-1/2" />
+      </div>
+      <Sk className="rounded h-6 w-20 shrink-0" />
+    </div>
+  );
+}
+
+// ─── SkeletonDetailPage ─────────────────────────────────────────────────────
+// Full detail-page skeleton: header + tab bar + body panels
+
+export function SkeletonDetailPage() {
+  return (
+    <div className="flex flex-col gap-6">
+      <SkeletonPageHeader />
+      {/* Tab bar */}
+      <div className="flex gap-6 border-b pb-2" style={{ borderColor: "var(--border)" }}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Sk key={i} className="rounded h-4" style={{ width: i === 0 ? 64 : 56 }} />
+        ))}
+      </div>
+      {/* KPI strip */}
+      <SkeletonKpiGrid count={4} />
+      {/* Content panels */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2 flex flex-col gap-3">
+          <Sk className="rounded h-4 w-40" />
+          <SkeletonTable rows={4} cols={4} />
+        </div>
+        <div className="flex flex-col gap-3">
+          <Sk className="rounded h-4 w-28" />
+          <SkeletonCard height="160px" />
+          <SkeletonCard height="120px" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── SkeletonStatCard ───────────────────────────────────────────────────────
+// Single KPI/stat card with label, large number, and trend indicator
+
+export function SkeletonStatCard() {
+  return (
+    <div className="rounded-xl border p-4 flex flex-col gap-2" style={{ borderColor: "var(--border)" }}>
+      <Sk className="rounded h-3 w-2/3" />
+      <Sk className="rounded h-9 w-3/4 mt-1" />
+      <div className="flex items-center gap-2 mt-1">
+        <Sk className="rounded h-3 w-10" />
+        <Sk className="rounded h-3 w-20" />
+      </div>
+    </div>
+  );
+}
